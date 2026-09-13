@@ -70,7 +70,7 @@ data/
 └── telemetry_sample_2025-08.csv
 ```
 
-### Step 2: Run Pipeline (One Command)
+### Step 2: Run Pipeline (Batch Mode)
 Generate the 120-row prediction file with a single command:
 ```bash
 python run.py --data data --out predictions.csv
@@ -78,8 +78,35 @@ python run.py --data data --out predictions.csv
 **Command Line Arguments**:
 - `--data <path>`: Path to directory containing input datasets (default: `./data`).
 - `--out <path>`: Path for output CSV file (default: `./predictions.csv`).
+- `--ranker <name>`: Ranking algorithm to apply (`composite` or `baseline`, default: `composite`).
 
-### Step 3: Validate the Submission
+### Step 3: Start the REST Web API (Part 2: Track B)
+Launch the interactive FastAPI service:
+```bash
+python run.py --serve --host 127.0.0.1 --port 8000
+```
+Interactive Swagger Documentation is automatically available at:
+👉 **`http://127.0.0.1:8000/docs`**
+
+#### Core API Endpoints:
+- `GET /rankings?week=2026-02-02`: Returns the top 15 ranked gateways with scores and reasons.
+- `GET /gateways/{gateway_id}?week=2026-02-02`: Returns operational telemetry diagnostics and dispatch reasons for any gateway (e.g. `0A2778A31BE3`).
+- `POST /run?ranker=composite`: Re-triggers the prioritization pipeline on mounted data without restarting the server.
+- `GET /health`: Liveness probe reporting active data directory, available weeks, and registered rankers.
+
+#### Example API Requests:
+```bash
+# Query this week's top 15 gateways
+curl "http://127.0.0.1:8000/rankings?week=2026-02-02"
+
+# Inspect specific gateway diagnostics
+curl "http://127.0.0.1:8000/gateways/0A2778A31BE3?week=2026-02-02"
+
+# Re-run pipeline with swappable baseline ranker
+curl -X POST "http://127.0.0.1:8000/run?ranker=baseline&out=predictions_baseline.csv"
+```
+
+### Step 4: Validate the Submission
 Verify output compliance against the official schema validator:
 ```bash
 python validate_submission.py predictions.csv

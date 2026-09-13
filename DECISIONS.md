@@ -43,9 +43,9 @@ This document details five fundamental decisions made during the design and impl
 ---
 
 ### Decision 5: Part 2 Specialization Track Selection — Track B (Software Development)
-- **Decision**: We have selected **Track B — Software Development** as our Part 2 specialization track (to be implemented upon selection).
+- **Decision**: Implemented **Track B — Software Development**, delivering a production-grade FastAPI REST web service (`src/api.py`), decoupled ranking interface (`BaseRanker`), deliberate error handling (HTTP 400/404/409/422), interactive OpenAPI docs (`/docs`), and full automated test suite.
 - **Alternative Considered**: Track A (Data Engineering), Track C (DevOps), or Track E (Machine Learning).
-- **Why Chosen**: An anomaly ranking algorithm provides zero business value if field teams cannot easily query it, inspect reasoning, trigger re-runs when new data lands, and integrate it into field dispatch workflows. Track B focuses on building a clean REST API (FastAPI), swappable ranking abstractions, robust error handling for corrupt inputs, comprehensive test suites, and self-documenting endpoints.
+- **Why Chosen**: An anomaly ranking algorithm provides zero business value if field teams cannot easily query it, inspect reasoning, trigger re-runs when new data lands, and integrate it into field dispatch workflows. Track B provides a clean REST API, swappable ranking abstractions, robust error handling for corrupt inputs, comprehensive test suites, and self-documenting endpoints.
 - **Trade-off**: Focuses engineering effort on software modularity, API design, and resilience rather than training black-box machine learning models.
 - **Risk**: If the core ranking logic requires extensive nonlinear parameter tuning, an ML-focused track might yield marginally higher precision on specific holdout splits.
 
