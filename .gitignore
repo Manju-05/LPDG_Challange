@@ -1,0 +1,25 @@
+# Data & Challenge prompt files
+data/
+03-challenge-data/
+*.zip
+*.parquet
+*.pdf
+prompt.txt
+README.txt
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local prediction outputs generated during development
+baseline_predictions.csv
+
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
