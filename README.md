@@ -10,11 +10,11 @@ LPDG operates a utility radio network consisting of approximately **320 gateways
 
 When a gateway degrades or fails, the meters behind it stop transmitting readings. These failures are typically silent and difficult to diagnose immediately, leading to unread meters, inaccurate billing cycles, and manual read dispatch costs.
 
-### The Operational Challenge:
+### The Operational Challenge
 - **Field Capacity Constraint**: Hard limit of **15 field visits per week** (120 total visits across the 8-week evaluation window).
 - **Objective**: Identify and rank the 15 gateways most urgently requiring a technician visit for each of the 8 scored weeks from **2 February 2026 to 23 March 2026**.
 
-### Economic Cost Model:
+### Economic Cost Model
 - **Dispatched Visit**: **€380** fixed cost per technician visit.
 - **False Alarm** (Visit sent, but nothing wrong): **€380 wasted**.
 - **Unattended Faulty Gateway**: **€600 per week** recurring penalty for every week a broken gateway remains unattended.
@@ -33,6 +33,12 @@ When a gateway degrades or fails, the meters behind it stop transmitting reading
 ├── predictions.csv                 # Generated submission (120 rows, 8 scored weeks)
 ├── run.py                          # One-command CLI entry point
 ├── validate_submission.py          # Official submission validator
+├── pytest.ini                      # Pytest runner configuration
+├── requirements.txt                # Python dependencies
+├── Makefile                        # Make targets for run, test, validate
+├── run.sh                          # Shell execution script
+├── Dockerfile                      # Container definition
+├── docker-compose.yml              # One-command container runner
 ├── src/
 │   ├── __init__.py                 # Package initialization
 │   ├── config.py                   # System constants, scored weeks, cost parameters
@@ -57,7 +63,7 @@ When a gateway degrades or fails, the meters behind it stop transmitting reading
 - Core dependencies: `pandas`, `numpy`, `pyarrow`, `pytest`
 
 ### Step 1: Clone Repository & Mount Data
-Place the unzipped challenge `data/` directory at repository root:
+Place the unzipped challenge `data/` directory at the repository root:
 ```text
 data/
 ├── engineer_review_2026-02.xlsx
@@ -71,9 +77,9 @@ data/
 ```
 
 ### Step 2: Run Pipeline (One Command)
-Generate the 120-row prediction file using your preferred execution method:
+Generate the 120-row prediction file using any of the supported execution methods:
 
-**Option A — Python**:
+**Option A — Python CLI**:
 ```bash
 python run.py --data data --out predictions.csv
 ```
@@ -83,7 +89,7 @@ python run.py --data data --out predictions.csv
 make run
 ```
 
-**Option C — Shell Script (Unix / macOS / Linux)**:
+**Option C — Shell Script (Linux / macOS / Git Bash)**:
 ```bash
 ./run.sh
 ```
@@ -107,32 +113,35 @@ predictions.csv: OK
 
 ---
 
-## 4. Running the Automated Test Suite
+## 4. Automated Test Suite
 
 Run the full pytest suite to verify temporal cutoff integrity, schema compliance, and reproducibility:
 ```bash
-python -m pytest tests/ -v
+pytest
 ```
 
 ### Test Coverage Highlights:
-- **Temporal Leakage Prevention** ([`tests/test_temporal_cutoff.py`](file:///d:/Sigma/LPDG/tests/test_temporal_cutoff.py)):
+- **Temporal Leakage Prevention** ([`tests/test_temporal_cutoff.py`](tests/test_temporal_cutoff.py)):
   - Asserts all timestamps strictly on or after Monday 00:00 UTC are discarded.
   - Verifies `engineer_review_2026-02.xlsx` (dated 2026-02-15) is completely withheld for weeks starting `2026-02-02` and `2026-02-09`, only taking effect on `2026-02-16`.
-- **Output Validation & Fixtures** ([`tests/test_schema_and_validation.py`](file:///d:/Sigma/LPDG/tests/test_schema_and_validation.py)):
+- **Output Validation & Fixtures** ([`tests/test_schema_and_validation.py`](tests/test_schema_and_validation.py)):
   - Validates isolated synthetic fixtures and full `predictions.csv` against `validate_submission.py`.
-- **Reproducibility** ([`tests/test_reproducibility.py`](file:///d:/Sigma/LPDG/tests/test_reproducibility.py)):
+- **Reproducibility** ([`tests/test_reproducibility.py`](tests/test_reproducibility.py)):
   - Executes the entire pipeline twice from scratch and verifies bit-for-bit identical output.
-- **Components** ([`tests/test_components.py`](file:///d:/Sigma/LPDG/tests/test_components.py)):
+- **Components** ([`tests/test_components.py`](tests/test_components.py)):
   - Tests ID normalization, reason string length ($\le 300$ chars), and episode cooldown decay.
 
 ---
 
 ## 5. Technical Design & Ranking Methodology
 
+### Why This Architecture?
+Standard 3-sigma anomaly counts fail when a gateway suffers total power loss (producing zero records and zero spikes) or when visits are redundantly sent to already-attended broken gateways. Our multi-signal architecture solves this.
+
 ### Strict Temporal Boundary Enforcement
 For any target Monday $T$ (`2026-02-02` through `2026-03-23`):
 - **Telemetry**: Evaluates a 28-day baseline window $[T - 28\text{d}, T)$ and recent 7-day observation window $[T - 7\text{d}, T)$. Any data timestamped $ts \ge T$ is strictly excluded.
-- **Meter Reads**: Slices `meter_read_success.csv` strictly on $\text{week\_date} < T$ (the reporting week of $T$ is not yet available at dispatch time).
+- **Meter Reads**: Slices `meter_read_success.csv` strictly on $\text{week\_date} < T$.
 - **Field Visits**: Slices `field_visits.csv` on $\text{visited\_on} < T$.
 - **Engineer Review**: Strictly restricted to $T \ge \text{2026-02-16}$.
 
@@ -145,13 +154,13 @@ The ranking engine synthesizes four orthogonal evidence streams into an operatio
 
 $$\text{Raw Score} = \text{flagged\_hours}_{3\sigma} + 0.5 \cdot \min(\text{offline\_hrs}, 48) + 10.0 \cdot \text{meter\_fail\_rate} + 0.05 \cdot \text{silent\_hrs} + 2.0 \cdot \text{expert\_schlecht}$$
 
-### Episode Cooldown Discounting
-To optimize within the 15-visit quota:
+### Episode Cooldown Optimization
+To maximize value within the 15-visit quota:
 $$\text{Final Score} = \text{Raw Score} \times \begin{cases} 0.2 & \text{if visited in week } w-1 \\ 1.0 & \text{otherwise} \end{cases}$$
 This prevents burning scarce visits on unchanged continuing faults and redirects technician capacity to newly degraded gateways.
 
 ### Deterministic Tie-Breaking
-Rows are sorted by:
+Rows are sorted deterministically by:
 1. `score` **Descending**
 2. `gateway_id` **Ascending**
 
@@ -171,18 +180,21 @@ The generated submission contains exactly 120 rows (15 gateways $\times$ 8 weeks
 
 ## 7. Deliverables & Documentation Index
 
-- **[`predictions.csv`](file:///d:/Sigma/LPDG/predictions.csv)**: Validated submission file.
-- **[`DECISIONS.md`](file:///d:/Sigma/LPDG/DECISIONS.md)**: 5 core architectural decisions, trade-offs, risks, Part 2 Track Selection (Track B — Software Development), and limitations.
-- **[`AI-USAGE.md`](file:///d:/Sigma/LPDG/AI-USAGE.md)**: Transparent declaration of AI tooling, manual review procedures, and concrete AI errors caught and resolved.
-- **[`run.py`](file:///d:/Sigma/LPDG/run.py)** & **[`src/`](file:///d:/Sigma/LPDG/src/)**: Offline pipeline implementation.
-- **[`tests/`](file:///d:/Sigma/LPDG/tests/)**: Automated verification suite.
+- **[`predictions.csv`](predictions.csv)**: Validated submission file.
+- **[`DECISIONS.md`](DECISIONS.md)**: 5 core architectural decisions, trade-offs, risks, Part 2 Track Selection (Track B — Software Development), and limitations.
+- **[`AI-USAGE.md`](AI-USAGE.md)**: Transparent declaration of AI tooling, manual review procedures, and concrete AI errors caught and resolved.
+- **[`run.py`](run.py)** & **[`src/`](src/)**: Offline pipeline implementation.
+- **[`tests/`](tests/)**: Automated verification suite.
 
 ---
 
-## 8. Screen Recording Walkthrough Outline (6–8 Minutes)
+## 8. Video Walkthrough & Presentation Outline
 
-1. **Problem & Economic Context (1 min)**: Fleet size (~320 gateways), 15 visits/week limit, €380 visit cost vs €600 recurring unattended fault penalty.
+> **Note**: A 6–8 minute walkthrough video will be recorded and linked here prior to final submission.
+
+### Walkthrough Script / Slide Outline:
+1. **Problem & Economic Context (1 min)**: Fleet scale (~320 gateways), 15 visits/week limit, €380 visit cost vs €600 recurring unattended fault penalty.
 2. **Architecture & Cutoff Enforcement (2 mins)**: Walk through `src/` modules, showing strict Monday 00:00 UTC boundaries and date-checked engineer review integration.
 3. **One-Command Execution (1 min)**: Execute `python run.py --data data --out predictions.csv` in terminal.
-4. **Validation & Test Execution (1.5 mins)**: Run `python validate_submission.py predictions.csv` and `python -m pytest tests/ -v`.
+4. **Validation & Test Execution (1.5 mins)**: Run `python validate_submission.py predictions.csv` and `pytest`.
 5. **Decisions & Part 2 Focus (1.5 mins)**: Review episode cooldown strategy, explain Part 2 selection (Track B — Software Development), and address limitations documented in `DECISIONS.md`.
