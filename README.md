@@ -70,15 +70,28 @@ data/
 └── telemetry_sample_2025-08.csv
 ```
 
-### Step 2: Run Pipeline (Batch Mode)
-Generate the 120-row prediction file with a single command:
+### Step 2: Run Pipeline (One Command)
+Generate the 120-row prediction file using your preferred execution method:
+
+**Option A — Python**:
 ```bash
 python run.py --data data --out predictions.csv
 ```
-**Command Line Arguments**:
-- `--data <path>`: Path to directory containing input datasets (default: `./data`).
-- `--out <path>`: Path for output CSV file (default: `./predictions.csv`).
-- `--ranker <name>`: Ranking algorithm to apply (`composite` or `baseline`, default: `composite`).
+
+**Option B — Make**:
+```bash
+make run
+```
+
+**Option C — Shell Script (Unix / macOS / Linux)**:
+```bash
+./run.sh
+```
+
+**Option D — Docker Compose**:
+```bash
+docker compose up
+```
 
 ### Step 3: Start the REST Web API (Part 2: Track B)
 Launch the interactive FastAPI service:
@@ -110,6 +123,7 @@ curl -X POST "http://127.0.0.1:8000/run?ranker=baseline&out=predictions_baseline
 Verify output compliance against the official schema validator:
 ```bash
 python validate_submission.py predictions.csv
+# or: make validate
 ```
 **Expected Output**:
 ```text
