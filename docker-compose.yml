@@ -1,0 +1,7 @@
+services:
+  lpdg-pipeline:
+    build: .
+    volumes:
+      - ./data:/app/data:ro
+      - .:/app/output
+    command: ["sh", "-c", "python run.py --data data --out /app/output/predictions.csv && python validate_submission.py /app/output/predictions.csv"]
