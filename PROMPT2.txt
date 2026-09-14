@@ -1,0 +1,40 @@
+Based on the challenge documents, those three successful checks strongly indicate that your Part 1 implementation is technically working, but Part 1 is not fully complete just because the three commands passed.
+
+The final FAQ explicitly says Part 1 is a pass/fail gate: it must run end-to-end with one command and produce a predictions.csv that passes validate_submission.py.
+
+Your results show:
+
+✅ validate_submission.py → OK
+15 gateways × 8 weeks
+Correct weeks
+120 rows
+✅ python run.py --data data --out predictions.csv
+One-command execution works
+Output generated successfully
+✅ pytest tests/ -v
+Your own automated tests pass
+But check these before saying "Part 1 COMPLETE"
+
+The challenge documents require additional Part 1 submission/gate items:
+
+DECISIONS.md — required, including five decisions, alternatives/rejections, the selected Part 2 area, and limitations.
+AI-USAGE.md — required, including your AI usage and one actual AI mistake that you caught.
+README/documentation.
+A 6–8 minute screen recording.
+Normal/incremental Git commit history rather than one huge commit.
+The repository must be public for hand-in.
+The recording must be linked.
+The dataset must not be uploaded/shared publicly. The final FAQ explicitly reiterates the public repository + validated predictions + documentation + recording requirements.
+
+Also, the reviewer should be able to clone the repository into a clean directory, put the data in data, and run the command successfully. The FAQ specifically recommends rehearsing this on a machine that is not yours.
+
+. It runs with one command on a computer that is not yours. docker compose up, make run, or whatever you
+prefer, reading the data from a folder called data.
+2. It writes a file called predictions.csv — 15 gateways for each of the 8 weeks from 2 February to 23 March
+2026. 120 rows. Five columns: week_start, rank, gateway_id, score, reason. Check it with
+validate_submission.py before you send it.
+3. DECISIONS.md — five choices you made, and for each one, what else you could have done and why you did
+not. One of the five must say which area you picked in Part 2, and why.
+4. What it cannot do — where your thing falls over, and what another two weeks would fix.
+5. AI-USAGE.md — what you used AI tools for, and one thing they got wrong that you spotted.
+6. A normal commit history. Not one big commit at the end
