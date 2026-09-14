@@ -36,6 +36,37 @@ class GatewayDetailResponse(BaseModel):
     metrics: dict[str, Any] = Field(default_factory=dict, description="Raw operational feature indicators")
 
 
+class GatewayHistoryEntry(BaseModel):
+    """Weekly snapshot entry for gateway history."""
+
+    week_start: str = Field(..., description="Reporting Monday date (YYYY-MM-DD)")
+    rank: int | None = Field(None, description="Rank if in top 15, otherwise null")
+    score: float = Field(..., description="Calculated risk score")
+    offline_hours: float = Field(..., description="Cumulative offline duration in hours")
+    silent_hours: int = Field(..., description="Missing telemetry hours")
+    meter_fail_rate: float = Field(..., description="Meter reading failure rate")
+    is_recommended_visit: bool = Field(..., description="Whether a visit was recommended this week")
+
+
+class GatewayHistoryResponse(BaseModel):
+    """Historical multi-week trend for a specific gateway."""
+
+    gateway_id: str = Field(..., description="12-character uppercase gateway identifier")
+    weeks_evaluated: int = Field(..., description="Total number of evaluation weeks analyzed")
+    history: list[GatewayHistoryEntry] = Field(..., description="Chronological weekly operational snapshots")
+
+
+class FleetSummaryResponse(BaseModel):
+    """High-level operational health summary across the entire gateway fleet."""
+
+    week_start: str = Field(..., description="Reporting Monday date (YYYY-MM-DD)")
+    total_gateways_monitored: int = Field(..., description="Total active gateways in fleet")
+    gateways_with_3sigma_breaches: int = Field(..., description="Number of gateways exhibiting 3-sigma spikes")
+    silent_gateways_count: int = Field(..., description="Number of gateways with >24h telemetry silence")
+    avg_fleet_meter_fail_rate: float = Field(..., description="Average fleet-wide meter read failure rate")
+    recommended_visits_count: int = Field(..., description="Total gateways prioritized for field dispatch (max 15)")
+
+
 class RunPipelineResponse(BaseModel):
     """Response payload for re-running the prioritization pipeline."""
 

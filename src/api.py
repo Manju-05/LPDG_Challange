@@ -26,7 +26,10 @@ from src.ranker import RANKER_REGISTRY, get_ranker
 from src.reason_generator import build_reason
 from src.schemas import (
     ErrorResponse,
+    FleetSummaryResponse,
     GatewayDetailResponse,
+    GatewayHistoryEntry,
+    GatewayHistoryResponse,
     GatewayRankingItem,
     HealthResponse,
     RunPipelineResponse,
@@ -96,6 +99,50 @@ def get_health() -> HealthResponse:
         data_dir_exists=DEFAULT_DATA_DIR.exists(),
         available_weeks=[w.isoformat() for w in SCORED_WEEKS],
         available_rankers=list(RANKER_REGISTRY.keys()),
+    )
+
+
+@app.get("/fleet/summary", response_model=FleetSummaryResponse, tags=["Fleet Rankings"])
+def get_fleet_summary(
+    week: str | None = Query(
+        None,
+        description="Target Monday date (YYYY-MM-DD, e.g. 2026-02-02). Defaults to 2026-02-02.",
+    ),
+) -> FleetSummaryResponse:
+    """Retrieve high-level operational health statistics across the entire gateway fleet."""
+    target_monday = _get_target_monday(week)
+
+    if not DEFAULT_DATA_DIR.exists():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Data directory '{DEFAULT_DATA_DIR}' not found on server.",
+        )
+
+    telemetry = load_telemetry(DEFAULT_DATA_DIR)
+    gateway_master = load_gateway_master(DEFAULT_DATA_DIR)
+    meter_reads = load_meter_reads(DEFAULT_DATA_DIR)
+    engineer_review = load_engineer_review(DEFAULT_DATA_DIR)
+
+    features = extract_features_for_week(
+        monday=target_monday,
+        telemetry=telemetry,
+        gateway_master=gateway_master,
+        meter_reads=meter_reads,
+        engineer_review=engineer_review,
+    )
+
+    total_monitored = len(features)
+    spike_count = int((features["flagged_hours"] > 0).sum())
+    silent_count = int((features["silent_hours"] > 24).sum())
+    avg_fail_rate = round(float(features["meter_fail_rate"].mean()), 4)
+
+    return FleetSummaryResponse(
+        week_start=target_monday.isoformat(),
+        total_gateways_monitored=total_monitored,
+        gateways_with_3sigma_breaches=spike_count,
+        silent_gateways_count=silent_count,
+        avg_fleet_meter_fail_rate=avg_fail_rate,
+        recommended_visits_count=min(15, total_monitored),
     )
 
 
@@ -263,6 +310,102 @@ def get_gateway_details(
         reason=reason_val,
         is_recommended_visit=is_rec,
         metrics=raw_metrics,
+    )
+
+
+@app.get("/gateways/{gateway_id}/history", response_model=GatewayHistoryResponse, tags=["Gateway Diagnostics"])
+def get_gateway_history(
+    gateway_id: str,
+    ranker: str = Query(
+        "composite",
+        description="Ranking strategy: 'composite' or 'baseline'.",
+    ),
+) -> GatewayHistoryResponse:
+    """Retrieve multi-week historical performance and visit recommendations for a gateway."""
+    norm_id = normalize_gateway_id(gateway_id)
+    if not norm_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid gateway identifier format: '{gateway_id}'",
+        )
+
+    try:
+        ranker_instance = get_ranker(ranker)
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
+
+    if not DEFAULT_DATA_DIR.exists():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Data directory '{DEFAULT_DATA_DIR}' not found on server.",
+        )
+
+    telemetry = load_telemetry(DEFAULT_DATA_DIR)
+    gateway_master = load_gateway_master(DEFAULT_DATA_DIR)
+    meter_reads = load_meter_reads(DEFAULT_DATA_DIR)
+    engineer_review = load_engineer_review(DEFAULT_DATA_DIR)
+
+    history_entries: list[GatewayHistoryEntry] = []
+    recent_visits: dict[str, int] = {}
+
+    for week_idx, monday in enumerate(SCORED_WEEKS):
+        features = extract_features_for_week(
+            monday=monday,
+            telemetry=telemetry,
+            gateway_master=gateway_master,
+            meter_reads=meter_reads,
+            engineer_review=engineer_review,
+        )
+
+        gw_row = features[features["gateway_id"] == norm_id]
+        if gw_row.empty:
+            continue
+
+        ranked_df, selected_ids = ranker_instance.rank_week(
+            monday=monday,
+            features=features,
+            recent_visits=recent_visits,
+            week_idx=week_idx,
+        )
+
+        # Update visit tracking for cooldown
+        for gid in selected_ids:
+            recent_visits[gid] = week_idx
+
+        row_data = gw_row.iloc[0]
+        match = ranked_df[ranked_df["gateway_id"] == norm_id]
+
+        if not match.empty:
+            rank_val = int(match.iloc[0]["rank"])
+            score_val = float(match.iloc[0]["score"])
+            is_rec = True
+        else:
+            rank_val = None
+            score_val = round(float(row_data.get("flagged_hours", 0)), 2)
+            is_rec = False
+
+        history_entries.append(
+            GatewayHistoryEntry(
+                week_start=monday.isoformat(),
+                rank=rank_val,
+                score=score_val,
+                offline_hours=round(float(row_data.get("offline_hours", 0.0)), 2),
+                silent_hours=int(row_data.get("silent_hours", 0)),
+                meter_fail_rate=round(float(row_data.get("meter_fail_rate", 0.0)), 4),
+                is_recommended_visit=is_rec,
+            )
+        )
+
+    if not history_entries:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Gateway '{norm_id}' has no historical records in the fleet.",
+        )
+
+    return GatewayHistoryResponse(
+        gateway_id=norm_id,
+        weeks_evaluated=len(history_entries),
+        history=history_entries,
     )
 
 

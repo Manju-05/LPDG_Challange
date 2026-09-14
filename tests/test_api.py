@@ -22,6 +22,18 @@ def test_api_health_endpoint() -> None:
     assert len(data["available_weeks"]) == 8
 
 
+def test_api_fleet_summary_endpoint() -> None:
+    """Verify that /fleet/summary returns fleet-wide operational health statistics."""
+    response = client.get("/fleet/summary?week=2026-02-02")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["week_start"] == "2026-02-02"
+    assert data["total_gateways_monitored"] > 0
+    assert data["recommended_visits_count"] == 15
+    assert "gateways_with_3sigma_breaches" in data
+    assert "silent_gateways_count" in data
+
+
 def test_api_get_rankings_default() -> None:
     """Verify that /rankings returns top 15 gateways for the default week."""
     response = client.get("/rankings")
@@ -77,6 +89,18 @@ def test_api_gateway_detail_success() -> None:
     assert "metrics" in data
     assert "flagged_hours_3sigma" in data["metrics"]
     assert "total_offline_hours" in data["metrics"]
+
+
+def test_api_gateway_history_endpoint() -> None:
+    """Verify /gateways/{id}/history returns multi-week chronological snapshots."""
+    known_id = "0A2778A31BE3"
+    response = client.get(f"/gateways/{known_id}/history")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["gateway_id"] == known_id
+    assert data["weeks_evaluated"] == 8
+    assert len(data["history"]) == 8
+    assert data["history"][0]["week_start"] == "2026-02-02"
 
 
 def test_api_gateway_detail_not_found() -> None:
