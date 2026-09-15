@@ -1,10 +1,10 @@
 # Architectural & Engineering Decisions (DECISIONS.md)
 
-This document details five fundamental decisions made during the design and implementation of the Part 1 field visit prioritization engine, followed by known system limitations and a prioritized engineering roadmap.
+This document details the core architectural decisions made during the design and implementation of the field visit prioritization engine, followed by known system limitations and a prioritized engineering roadmap.
 
 ---
 
-## 1. Five Core Decisions
+## 1. Core Engineering Decisions
 
 ### Decision 1: Temporal Cutoff Convention (Strict Monday 00:00 UTC)
 - **Decision**: Enforce a strict cutoff at `Monday 00:00:00 UTC` for all datasets prior to target prediction week $T$. Telemetry is sliced strictly on $[T-28d, T)$, meter reads strictly on $\text{week\_date} < T$, and the engineer review spreadsheet (dated 2026-02-15) is only available for $T \ge \text{2026-02-16}$.
@@ -24,28 +24,37 @@ This document details five fundamental decisions made during the design and impl
 
 ---
 
-### Decision 3: Episode Cooldown & Visit Deduplication Under the 15-Visit Cap
-- **Decision**: Apply an episode cooldown penalty (0.2x score multiplier) to gateways that were already selected for a field visit in the immediately preceding week ($w-1$).
-- **Alternative Considered**: Independent stateless weekly ranking (as done in `baseline_3sigma.py`).
-- **Why Chosen**: The challenge economics dictate that the first visit to a broken gateway halts the recurring €600/week penalty for that episode. Re-visiting the same gateway in consecutive weeks during the same continuous problem wastes €380 and burns 1 of our 15 weekly slots without saving additional money.
-- **Trade-off**: If a technician visit fails to fix the problem and the gateway remains broken in a brand-new episode, the system will temporarily de-prioritize it for 1 week.
-- **Risk**: If the field team did not actually repair the gateway on their initial visit, the cooldown might delay a necessary follow-up.
+### Decision 3: Multi-Week Episode Cooldown & Visit Deduplication Under the 15-Visit Cap
+- **Decision**: Apply a progressive multi-week episode cooldown schedule ($0.10\times$ in week $w+1$, $0.25\times$ in week $w+2$, and $0.50\times$ in week $w+3$) to gateways selected for a field visit in prior weeks.
+- **Alternative Considered**: Single-week stateless cooldown, or independent weekly ranking (as done in `baseline_3sigma.py`).
+- **Why Chosen**: Round-2 FAQ 4.1 explicitly emphasizes that within an ongoing fault episode, only the earliest visit halts the €600/week penalty. Re-visiting the same gateway in subsequent consecutive weeks during the same continuous episode yields **€0 incremental savings** and wastes a scarce €380 visit slot. A multi-week cooldown prevents repeat-visit burn throughout the expected 3–4 week fault lifecycle.
+- **Trade-off**: If a technician visit failed to resolve the issue on the first attempt, the gateway is temporarily de-prioritized for 1–2 weeks before full eligibility resumes in week 4.
+- **Risk**: If on-site technician parts replacement fails, follow-up intervention is delayed until the cooldown decays.
 
 ---
 
-### Decision 4: Handling Telemetry Silence as Ambiguous Risk Rather Than Zero-Filling
-- **Decision**: Track unreported hours ($\text{silent\_hours} = 168 - \text{reported\_hours}$) as an additive risk factor for active gateways, rather than applying a global `fillna(0)` across missing rows.
-- **Alternative Considered**: Imputing zeros for missing telemetry hours, or discarding gateways with missing hours.
-- **Why Chosen**: In IoT radio networks, complete silence often indicates backhaul loss, antenna disconnection, or power outage. Imputing zero disconnects/offline seconds would make a completely dead gateway appear completely healthy.
-- **Trade-off**: Minor network coverage drops or intermittent telco maintenance could slightly elevate silence risk.
-- **Risk**: A newly installed gateway commissioned midway through the week might have fewer than 168 hours of historical data without being faulty.
+### Decision 4: In-Service Gateway Boundary Filtering & Telemetry Silence Accounting
+- **Decision**: Filter candidate gateways strictly by in-service dates ($\text{installed\_on} \le T$ AND $\text{decommissioned\_on} \ge T$). For verified in-service gateways, track missing reported hours ($\text{silent\_hours} = 168 - \text{reported\_hours}$) as an additive risk indicator rather than zero-filling.
+- **Alternative Considered**: Unfiltered master registry with global `fillna(0)` across missing telemetry rows.
+- **Why Chosen**: In `gateway_master.csv`, 33 gateways have `installed_on > 2026-02-02` (commissioned later in spring/summer 2026). Without active in-service filtering, uninstalled warehouse gateways exhibit 0 telemetry hours, falsely triggering 168h silence penalties. Filtering ensures only operational hardware is evaluated, and complete telemetry silence on active units correctly indicates backhaul/power loss.
+- **Trade-off**: Requires joint filtering across installation and decommissioning timestamp columns.
+- **Risk**: If installation date records in the master table have clerical lag, freshly deployed gateways might be omitted from the candidate pool for 1 week.
 
 ---
 
-### Decision 5: Part 2 Specialization Track Selection — Track B (Software Development)
-- **Decision**: We have selected **Track B — Software Development** as our Part 2 specialization track (to be implemented upon selection).
+### Decision 5: Meter Read Staleness Exponential Decay
+- **Decision**: Apply an exponential staleness discount factor ($\text{decay} = 0.8^{\text{weeks\_lag}}$) to meter read failure rates as prediction week $T$ drifts past the last published meter report (`2026-01-26`).
+- **Alternative Considered**: Treating the static 2026-01-26 meter read snapshot as permanently fresh across all 8 evaluation weeks.
+- **Why Chosen**: Per the Round-2 FAQ, `meter_read_success.csv` ends on 2026-01-26. In evaluation week 1 (2026-02-02), the report is 1 week old (fresh), but by week 8 (2026-03-23), it is 8 weeks old. Decaying the weight of stale historical reports ensures the system relies progressively more on fresh March telemetry rather than two-month-old historical meter data.
+- **Trade-off**: Meter read signal influence smoothly diminishes in later evaluation weeks.
+- **Risk**: If telemetry coverage drops on a gateway with historic meter failure, the decayed meter signal might not elevate it as aggressively in week 8.
+
+---
+
+### Decision 6: Part 2 Specialization Track Selection — Track B (Software Development)
+- **Decision**: Implemented **Track B — Software Development**, delivering a production-grade FastAPI REST web service (`src/api.py`), decoupled ranking interface (`BaseRanker`), deliberate error handling (HTTP 400/404/409/422), interactive OpenAPI docs (`/docs`), fleet health summary (`GET /fleet/summary`), multi-week gateway history (`GET /gateways/{id}/history`), dynamic `/run` re-ranking without server restart, and a 22-test automated suite.
 - **Alternative Considered**: Track A (Data Engineering), Track C (DevOps), or Track E (Machine Learning).
-- **Why Chosen**: An anomaly ranking algorithm provides zero business value if field teams cannot easily query it, inspect reasoning, trigger re-runs when new data lands, and integrate it into field dispatch workflows. Track B focuses on building a clean REST API (FastAPI), swappable ranking abstractions, robust error handling for corrupt inputs, comprehensive test suites, and self-documenting endpoints.
+- **Why Chosen**: An anomaly ranking algorithm provides zero business value if field dispatchers and technicians cannot easily query it at 8:00 AM, inspect diagnostic reasons, evaluate fleet health, trigger re-runs when new data lands, and integrate it into field ticketing systems.
 - **Trade-off**: Focuses engineering effort on software modularity, API design, and resilience rather than training black-box machine learning models.
 - **Risk**: If the core ranking logic requires extensive nonlinear parameter tuning, an ML-focused track might yield marginally higher precision on specific holdout splits.
 

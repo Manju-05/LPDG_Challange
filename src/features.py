@@ -32,17 +32,26 @@ def extract_features_for_week(
         (telemetry["ts"] >= baseline_start) & (telemetry["ts"] < end_utc)
     ]
 
-    # Get master list of all valid gateways
+    # Get master list of all in-service gateways for this week
+    m_ts = pd.Timestamp(monday)
     if not gateway_master.empty and "gateway_id" in gateway_master.columns:
-        cols = [c for c in ["gateway_id", "n_meters_installed", "decommissioned_on"] if c in gateway_master.columns]
+        cols = [c for c in ["gateway_id", "n_meters_installed", "installed_on", "decommissioned_on"] if c in gateway_master.columns]
         all_gateways = gateway_master[cols].copy()
         if "n_meters_installed" not in all_gateways.columns:
             all_gateways["n_meters_installed"] = 100
-        # Exclude gateways decommissioned before this Monday
+
+        # Filter strictly for gateways in-service on this Monday:
+        # 1. Commissioned/installed on or before this Monday
+        # 2. Not decommissioned before this Monday
+        in_service_mask = pd.Series(True, index=all_gateways.index)
+        if "installed_on" in all_gateways.columns:
+            inst_ts = pd.to_datetime(all_gateways["installed_on"], errors="coerce")
+            in_service_mask = in_service_mask & (inst_ts.isna() | (inst_ts <= m_ts))
         if "decommissioned_on" in all_gateways.columns:
             decom_ts = pd.to_datetime(all_gateways["decommissioned_on"], errors="coerce")
-            active_mask = decom_ts.isna() | (decom_ts >= pd.Timestamp(monday))
-            all_gateways = all_gateways[active_mask]
+            in_service_mask = in_service_mask & (decom_ts.isna() | (decom_ts >= m_ts))
+
+        all_gateways = all_gateways[in_service_mask].copy()
     else:
         unique_gws = telemetry_window["gateway_id"].unique()
         all_gateways = pd.DataFrame({
@@ -95,15 +104,23 @@ def extract_features_for_week(
     # Silence indicator: 168 hours in 7 days
     features["silent_hours"] = np.maximum(0, 168 - features["reported_hours"])
 
-    # 2. Meter read success (strictly before Monday)
+    # 2. Meter read success (strictly before Monday with staleness discount)
     if not meter_reads.empty:
         prior_reads = meter_reads[meter_reads["week_date"] < monday].copy()
         if not prior_reads.empty:
             # Sort by week_date descending to pick the most recent available week
             latest_reads = prior_reads.sort_values("week_date", ascending=False).groupby("gateway_id").first().reset_index()
-            latest_reads["meter_fail_rate"] = 1.0 - (
+            raw_fail_rate = 1.0 - (
                 latest_reads["meters_read"] / latest_reads["meters_expected"].clip(lower=1)
             ).clip(lower=0.0, upper=1.0)
+
+            # Exponential staleness decay: as weeks elapse since last meter read report (2026-01-26),
+            # decay reliance on stale report so fresh telemetry carries higher weight
+            days_diff = (monday - latest_reads["week_date"]).apply(lambda d: d.days if hasattr(d, "days") else int(d))
+            weeks_lag = np.maximum(0, (days_diff // 7) - 1)
+            staleness_factor = 0.8 ** weeks_lag
+            latest_reads["meter_fail_rate"] = raw_fail_rate * staleness_factor
+
             features = features.merge(
                 latest_reads[["gateway_id", "meter_fail_rate", "meters_expected", "meters_read"]],
                 on="gateway_id",
