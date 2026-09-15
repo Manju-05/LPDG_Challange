@@ -190,6 +190,11 @@ For any target Monday $T$ (`2026-02-02` through `2026-03-23`):
 - **Field Visits**: Slices `field_visits.csv` on $\text{visited\_on} < T$.
 - **Engineer Review**: Strictly restricted to $T \ge \text{2026-02-16}$.
 
+### In-Service Candidate Fleet Filtering (Hardware Lifecycle Boundaries)
+Before feature extraction and scoring, candidate gateways are filtered from `gateway_master.csv` (332 total entries) down to active in-service units:
+$$\text{installed\_on} \le T \quad \text{AND} \quad (\text{decommissioned\_on} \ge T \;\lor\; \text{decommissioned\_on is NULL})$$
+- **Why this matters**: In `gateway_master.csv`, 33 gateways have `installed_on > 2026-02-02` (commissioned later in spring/summer 2026) and 12 decommissioned units. Without active in-service filtering, uninstalled warehouse gateways exhibit 0 telemetry hours, falsely triggering 168h silence penalties. Filtering reduces the candidate pool to operational hardware (~290 gateways depending on the week), ensuring complete telemetry silence accurately reflects live power or backhaul loss rather than uninstalled warehouse hardware.
+
 ### Multi-Source Signal Formulation
 The ranking engine synthesizes orthogonal evidence streams into an operational risk score:
 1. **3-Sigma Telemetry Anomalies**: Hourly spikes exceeding $\mu + 3\sigma$ in `offline_duration_sec`, `disconnection_cnt`, or `reboot_cnt`.

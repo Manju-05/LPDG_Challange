@@ -1,6 +1,6 @@
 # AI Usage Statement (AI-USAGE.md)
 
-This document details the usage of AI coding tools during the development of the LPDG Innovation Hub Selection Challenge 2026 (Part 1).
+This document details the usage of AI coding tools during the development of the LPDG Innovation Hub Selection Challenge 2026 (Part 1 & Part 2: Track B — Software Development).
 
 ---
 
