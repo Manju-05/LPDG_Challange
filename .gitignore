@@ -4,7 +4,9 @@ data/
 *.zip
 *.parquet
 *.pdf
-prompt.txt
+prompt*.txt
+PROMPT*.txt
+*.prompt
 README.txt
 
 # Python cache & artifacts
