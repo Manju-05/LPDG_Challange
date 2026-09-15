@@ -275,3 +275,22 @@ def test_api_run_freshness_picks_up_new_data_on_disk(tmp_path: pathlib.Path, mon
 
     assert top_gw_2 == "0A0000000014"
     assert top_gw_2 != top_gw_1
+
+
+def test_api_trigger_run_pipeline_default_path() -> None:
+    """Verify POST /run with no parameters writes to canonical predictions.csv and passes validation."""
+    from validate_submission import validate
+
+    response = client.post("/run")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "completed"
+    assert data["rows_generated"] == 120
+    assert data["weeks_processed"] == 8
+    assert data["output_path"] == "predictions.csv"
+
+    default_out = pathlib.Path("predictions.csv")
+    assert default_out.exists()
+    problems = validate(default_out)
+    assert problems == [], f"Validation errors found in generated predictions.csv: {problems}"
+
