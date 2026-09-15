@@ -52,7 +52,7 @@ This document details the core architectural decisions made during the design an
 ---
 
 ### Decision 6: Part 2 Specialization Track Selection — Track B (Software Development)
-- **Decision**: Implemented **Track B — Software Development**, delivering a production-grade FastAPI REST web service (`src/api.py`), decoupled ranking interface (`BaseRanker`), deliberate error handling (HTTP 400/404/409/422), interactive OpenAPI docs (`/docs`), fleet health summary (`GET /fleet/summary`), multi-week gateway history (`GET /gateways/{id}/history`), dynamic `/run` re-ranking without server restart, and a 22-test automated suite.
+- **Decision**: Implemented **Track B — Software Development**, delivering a production-grade FastAPI REST web service (`src/api.py`), decoupled ranking interface (`BaseRanker`), deliberate error handling (HTTP 400/404/409/422), interactive OpenAPI docs (`/docs`), fleet health summary (`GET /fleet/summary`), multi-week gateway history (`GET /gateways/{id}/history`), dynamic `/run` re-ranking without server restart, and a 29-test automated test suite (11 core pipeline tests + 18 REST API integration tests).
 - **Alternative Considered**: Track A (Data Engineering), Track C (DevOps), or Track E (Machine Learning).
 - **Why Chosen**: An anomaly ranking algorithm provides zero business value if field dispatchers and technicians cannot easily query it at 8:00 AM, inspect diagnostic reasons, evaluate fleet health, trigger re-runs when new data lands, and integrate it into field ticketing systems.
 - **Trade-off**: Focuses engineering effort on software modularity, API design, and resilience rather than training black-box machine learning models.

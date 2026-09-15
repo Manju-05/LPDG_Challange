@@ -1,6 +1,6 @@
-# LPDG Innovation Hub — Selection Challenge 2026 (Part 1)
+# LPDG Innovation Hub — Selection Challenge 2026 (Part 1 & Part 2: Track B — Software Development)
 
-An automated, economically-driven field visit prioritization system for LPDG's smart utility radio network (~320 gateways).
+An automated, economically-driven field visit prioritization system and REST web service for LPDG's smart utility radio network (~320 gateways).
 
 ---
 
@@ -25,33 +25,37 @@ When a gateway degrades or fails, the meters behind it stop transmitting reading
 ## 2. Repository Structure
 
 ```text
-├── .gitignore                      # Protects raw data and environment artifacts
+├── .gitignore                      # Protects raw data, prompt notes, and caches
 ├── AI-USAGE.md                     # Statement of AI tool usage, review process, & fixes
-├── DECISIONS.md                    # 5 architectural decisions, limitations, & roadmap
+├── DECISIONS.md                    # 6 architectural decisions, limitations, & roadmap
 ├── README.md                       # Main documentation & run instructions
 ├── baseline_3sigma.py              # Provided 3-sigma anomaly baseline script
 ├── predictions.csv                 # Generated submission (120 rows, 8 scored weeks)
-├── run.py                          # One-command CLI entry point
+├── run.py                          # Dual-mode entry point (CLI pipeline & REST API server)
 ├── validate_submission.py          # Official submission validator
 ├── pytest.ini                      # Pytest runner configuration
-├── requirements.txt                # Python dependencies
-├── Makefile                        # Make targets for run, test, validate
+├── requirements.txt                # Python dependencies (pandas, pyarrow, fastapi, uvicorn, pytest)
+├── Makefile                        # Make targets for run, test, serve, validate
 ├── run.sh                          # Shell execution script
-├── Dockerfile                      # Container definition
+├── Dockerfile                      # Production container definition
 ├── docker-compose.yml              # One-command container runner
 ├── src/
 │   ├── __init__.py                 # Package initialization
+│   ├── api.py                      # FastAPI REST service & lifecycle coordinator (Track B)
 │   ├── config.py                   # System constants, scored weeks, cost parameters
 │   ├── data_loader.py              # Robust loaders for Parquet, CSVs, and Excel
-│   ├── features.py                 # Multi-signal extraction with strict cutoff enforcement
-│   ├── pipeline.py                 # End-to-end pipeline coordinator
-│   ├── ranker.py                   # Scoring engine, episode cooldown, & deterministic sort
-│   └── reason_generator.py         # Operations-centric reason builder (<= 300 chars)
+│   ├── features.py                 # Multi-signal extraction with strict cutoff & staleness decay
+│   ├── pipeline.py                 # End-to-end prioritization coordinator
+│   ├── ranker.py                   # Polymorphic rankers, episode cooldown, & deterministic sort
+│   ├── reason_generator.py         # Operations-centric reason builder (<= 300 chars)
+│   └── schemas.py                  # Pydantic v2 request & response schemas
 └── tests/
-    ├── test_components.py          # Unit tests for normalization, cooldown, & formatting
-    ├── test_reproducibility.py     # Idempotency & determinism tests across runs
-    ├── test_schema_and_validation.py # Synthetic fixture & output schema validation tests
-    └── test_temporal_cutoff.py     # Strict temporal cutoff & leakage prevention tests
+    ├── test_api.py                 # FastAPI REST API integration tests (18 tests)
+    ├── test_components.py          # Unit tests for normalization, cooldown, & formatting (3 tests)
+    ├── test_ranker_interface.py    # Interface conformance & ranker swapping tests (3 tests)
+    ├── test_reproducibility.py     # Idempotency & determinism tests across runs (1 test)
+    ├── test_schema_and_validation.py # Synthetic fixture & output schema validation tests (2 tests)
+    └── test_temporal_cutoff.py     # Strict temporal cutoff & leakage prevention tests (2 tests)
 ```
 
 ---
@@ -60,7 +64,7 @@ When a gateway degrades or fails, the meters behind it stop transmitting reading
 
 ### Prerequisites
 - Python 3.10+ (tested on Python 3.10, 3.11, 3.12, 3.13, 3.14)
-- Core dependencies: `pandas`, `numpy`, `pyarrow`, `pytest`
+- Core dependencies: `pandas`, `numpy`, `pyarrow`, `fastapi`, `uvicorn`, `pydantic`, `pytest`
 
 ### Step 1: Clone Repository & Mount Data
 Place the unzipped challenge `data/` directory at the repository root:
@@ -76,8 +80,8 @@ data/
 └── telemetry_sample_2025-08.csv
 ```
 
-### Step 2: Run Pipeline (One Command)
-Generate the 120-row prediction file using any of the supported execution methods:
+### Step 2: Run Prioritization Pipeline (Part 1)
+Generate the canonical 120-row prediction file using any supported execution method:
 
 **Option A — Python CLI**:
 ```bash
@@ -99,30 +103,45 @@ make run
 docker compose up
 ```
 
-### Step 3: Start the REST Web API (Part 2: Track B)
+### Step 3: Start the REST Web API (Part 2 — Track B: Software Development)
 Launch the interactive FastAPI service:
 ```bash
 python run.py --serve --host 127.0.0.1 --port 8000
+# or: make serve
 ```
-Interactive Swagger Documentation is automatically available at:
-👉 **`http://127.0.0.1:8000/docs`**
 
-#### Core API Endpoints:
-- `GET /rankings?week=2026-02-02`: Returns the top 15 ranked gateways with scores and reasons.
-- `GET /gateways/{gateway_id}?week=2026-02-02`: Returns operational telemetry diagnostics and dispatch reasons for any gateway (e.g. `0A2778A31BE3`).
-- `POST /run?ranker=composite`: Re-triggers the prioritization pipeline on mounted data without restarting the server.
-- `GET /health`: Liveness probe reporting active data directory, available weeks, and registered rankers.
+Interactive Swagger Documentation is automatically available at:
+👉 **`http://127.0.0.1:8000/docs`** (or Alternative ReDoc at `http://127.0.0.1:8000/redoc`)
+
+#### REST API Endpoints Overview:
+| Method & Route | Description | Key Parameters |
+| :--- | :--- | :--- |
+| `GET /health` | Service liveness probe & system metadata | None |
+| `GET /fleet/summary` | High-level fleet health (3$\sigma$ spikes, silence, fail rate) | `?week=YYYY-MM-DD` |
+| `GET /rankings` | Top 15 prioritized gateways for field dispatch | `?week=YYYY-MM-DD`, `?week=latest`, `?ranker=composite\|baseline` |
+| `GET /gateways/{id}` | Detailed operational diagnostics for a gateway | `?week=YYYY-MM-DD`, `?ranker=composite\|baseline` |
+| `GET /gateways/{id}/history` | Multi-week chronological trend across all 8 weeks | `?ranker=composite\|baseline` |
+| `POST /run` | Re-executes pipeline over mounted data without restart | `?ranker=composite\|baseline`, `?out=predictions.csv` |
 
 #### Example API Requests:
 ```bash
-# Query this week's top 15 gateways
+# 1. Inspect fleet-wide operational health
+curl "http://127.0.0.1:8000/fleet/summary?week=2026-02-02"
+
+# 2. Query top 15 ranked gateways for a specific week
 curl "http://127.0.0.1:8000/rankings?week=2026-02-02"
 
-# Inspect specific gateway diagnostics
+# 3. Query the latest dynamically discovered evaluation week
+curl "http://127.0.0.1:8000/rankings?week=latest"
+
+# 4. Inspect specific gateway diagnostics (supports bare or colon MAC format)
 curl "http://127.0.0.1:8000/gateways/0A2778A31BE3?week=2026-02-02"
 
-# Re-run pipeline with swappable baseline ranker
-curl -X POST "http://127.0.0.1:8000/run?ranker=baseline&out=predictions_baseline.csv"
+# 5. Query 8-week historical diagnostic trajectory for a gateway
+curl "http://127.0.0.1:8000/gateways/0A2778A31BE3/history"
+
+# 6. Re-run pipeline dynamically over disk without service restart
+curl -X POST "http://127.0.0.1:8000/run"
 ```
 
 ### Step 4: Validate the Submission
@@ -141,21 +160,21 @@ predictions.csv: OK
 
 ## 4. Automated Test Suite
 
-Run the full pytest suite to verify temporal cutoff integrity, schema compliance, and reproducibility:
+Run the full automated test suite (29 tests passing):
 ```bash
-pytest
+pytest -v
+# or: make test
 ```
 
 ### Test Coverage Highlights:
-- **Temporal Leakage Prevention** ([`tests/test_temporal_cutoff.py`](tests/test_temporal_cutoff.py)):
-  - Asserts all timestamps strictly on or after Monday 00:00 UTC are discarded.
-  - Verifies `engineer_review_2026-02.xlsx` (dated 2026-02-15) is completely withheld for weeks starting `2026-02-02` and `2026-02-09`, only taking effect on `2026-02-16`.
-- **Output Validation & Fixtures** ([`tests/test_schema_and_validation.py`](tests/test_schema_and_validation.py)):
-  - Validates isolated synthetic fixtures and full `predictions.csv` against `validate_submission.py`.
-- **Reproducibility** ([`tests/test_reproducibility.py`](tests/test_reproducibility.py)):
-  - Executes the entire pipeline twice from scratch and verifies bit-for-bit identical output.
-- **Components** ([`tests/test_components.py`](tests/test_components.py)):
-  - Tests ID normalization, reason string length ($\le 300$ chars), and episode cooldown decay.
+- **Core Pipeline & Integrity (11 tests)**:
+  - [`tests/test_temporal_cutoff.py`](tests/test_temporal_cutoff.py): Strict Monday 00:00 UTC cutoff and future row exclusion.
+  - [`tests/test_schema_and_validation.py`](tests/test_schema_and_validation.py): Synthetic fixture ranking and `validate_submission.py` compliance.
+  - [`tests/test_reproducibility.py`](tests/test_reproducibility.py): Bit-for-bit deterministic reproducibility across repeated runs.
+  - [`tests/test_components.py`](tests/test_components.py): ID normalization, reason formatting ($\le 300$ chars), and episode cooldown decay.
+  - [`tests/test_ranker_interface.py`](tests/test_ranker_interface.py): Polymorphic ranker interface conformance and runtime swapping.
+- **REST Web API Integration (18 tests)**:
+  - [`tests/test_api.py`](tests/test_api.py): `/health`, `/fleet/summary`, `/rankings`, dynamic `latest` partition discovery, operator-centric date validation, out-of-bounds telemetry protection, case/colon ID normalization, 8-week history trends, concurrent run locking (`409 Conflict`), dynamic disk reload without restart, and default canonical `POST /run` generation.
 
 ---
 
@@ -172,18 +191,19 @@ For any target Monday $T$ (`2026-02-02` through `2026-03-23`):
 - **Engineer Review**: Strictly restricted to $T \ge \text{2026-02-16}$.
 
 ### Multi-Source Signal Formulation
-The ranking engine synthesizes four orthogonal evidence streams into an operational risk score:
+The ranking engine synthesizes orthogonal evidence streams into an operational risk score:
 1. **3-Sigma Telemetry Anomalies**: Hourly spikes exceeding $\mu + 3\sigma$ in `offline_duration_sec`, `disconnection_cnt`, or `reboot_cnt`.
 2. **Telemetry Silence & Missing Hours**: Tracks unobserved hours ($\text{silent\_hours} = 168 - \text{reported\_hours}$) for active commissioned gateways.
 3. **Meter Reading Failure Rate**: $\Delta = 1 - \frac{\text{meters\_read}}{\max(1, \text{meters\_expected})}$ from the most recent prior week.
-4. **Engineer Ground Review**: High-risk flag for gateways reviewed as `Schlecht` (for weeks on or after 2026-02-16).
+4. **Meter Staleness Decay**: Applies exponential discount $\text{decay} = 0.8^{\text{weeks\_lag}}$ to reflect diminishing relevance as meter snapshots age.
+5. **Engineer Ground Review**: High-risk flag for gateways reviewed as `Schlecht` (for weeks on or after 2026-02-16).
 
-$$\text{Raw Score} = \text{flagged\_hours}_{3\sigma} + 0.5 \cdot \min(\text{offline\_hrs}, 48) + 10.0 \cdot \text{meter\_fail\_rate} + 0.05 \cdot \text{silent\_hrs} + 2.0 \cdot \text{expert\_schlecht}$$
+$$\text{Raw Score} = \text{flagged\_hours}_{3\sigma} + 0.5 \cdot \min(\text{offline\_hrs}, 48) + 10.0 \cdot \text{meter\_fail\_rate} \cdot 0.8^{\text{weeks\_lag}} + 0.05 \cdot \text{silent\_hrs} + 2.0 \cdot \text{expert\_schlecht}$$
 
-### Episode Cooldown Optimization
-To maximize value within the 15-visit quota:
-$$\text{Final Score} = \text{Raw Score} \times \begin{cases} 0.2 & \text{if visited in week } w-1 \\ 1.0 & \text{otherwise} \end{cases}$$
-This prevents burning scarce visits on unchanged continuing faults and redirects technician capacity to newly degraded gateways.
+### Multi-Week Episode Cooldown Optimization
+To maximize value within the 15-visit quota and prevent repeat-visit waste during continuous fault episodes (Round-2 FAQ 4.1):
+$$\text{Final Score} = \text{Raw Score} \times \begin{cases} 0.10 & \text{if visited in week } w-1 \\ 0.25 & \text{if visited in week } w-2 \\ 0.50 & \text{if visited in week } w-3 \\ 1.00 & \text{otherwise} \end{cases}$$
+This schedule achieves **85 unique gateway visits** across 120 slots without repeat-visit burn.
 
 ### Deterministic Tie-Breaking
 Rows are sorted deterministically by:
@@ -206,21 +226,23 @@ The generated submission contains exactly 120 rows (15 gateways $\times$ 8 weeks
 
 ## 7. Deliverables & Documentation Index
 
-- **[`predictions.csv`](predictions.csv)**: Validated submission file.
-- **[`DECISIONS.md`](DECISIONS.md)**: 5 core architectural decisions, trade-offs, risks, Part 2 Track Selection (Track B — Software Development), and limitations.
+- **[`predictions.csv`](predictions.csv)**: Validated submission file (120 rows, 8 scored weeks).
+- **[`DECISIONS.md`](DECISIONS.md)**: 6 core architectural decisions, trade-offs, risks, Part 2 Track Selection (Track B — Software Development), and limitations.
 - **[`AI-USAGE.md`](AI-USAGE.md)**: Transparent declaration of AI tooling, manual review procedures, and concrete AI errors caught and resolved.
-- **[`run.py`](run.py)** & **[`src/`](src/)**: Offline pipeline implementation.
-- **[`tests/`](tests/)**: Automated verification suite.
+- **[`run.py`](run.py)** & **[`src/`](src/)**: Prioritization pipeline and FastAPI REST service.
+- **[`tests/`](tests/)**: Automated 29-test verification suite.
 
 ---
 
 ## 8. Video Walkthrough & Presentation Outline
 
 > **Note**: A 6–8 minute walkthrough video will be recorded and linked here prior to final submission.
+> **Video Link**: `[Insert Walkthrough Link: YouTube / Loom / Drive]`
 
 ### Walkthrough Script / Slide Outline:
 1. **Problem & Economic Context (1 min)**: Fleet scale (~320 gateways), 15 visits/week limit, €380 visit cost vs €600 recurring unattended fault penalty.
 2. **Architecture & Cutoff Enforcement (2 mins)**: Walk through `src/` modules, showing strict Monday 00:00 UTC boundaries and date-checked engineer review integration.
 3. **One-Command Execution (1 min)**: Execute `python run.py --data data --out predictions.csv` in terminal.
-4. **Validation & Test Execution (1.5 mins)**: Run `python validate_submission.py predictions.csv` and `pytest`.
-5. **Decisions & Part 2 Focus (1.5 mins)**: Review episode cooldown strategy, explain Part 2 selection (Track B — Software Development), and address limitations documented in `DECISIONS.md`.
+4. **Validation & Test Execution (1.5 mins)**: Run `python validate_submission.py predictions.csv` and `pytest -v`.
+5. **REST API & Part 2 Focus (1.5 mins)**: Run `python run.py --serve`, showcase Swagger UI at `/docs`, demo `/fleet/summary`, `/gateways/{id}/history`, `/rankings?week=latest`, and `POST /run`.
+6. **Decisions & Limitations (1 min)**: Review multi-week episode cooldown strategy, meter staleness decay, and limitations/roadmap in `DECISIONS.md`.
