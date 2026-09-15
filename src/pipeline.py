@@ -1,4 +1,4 @@
-"""End-to-end Part 1 pipeline orchestrator."""
+"""End-to-end pipeline orchestrator with pluggable ranker support."""
 
 from __future__ import annotations
 
@@ -8,18 +8,26 @@ import pandas as pd
 from src.config import SCORED_WEEKS
 from src.data_loader import (
     load_engineer_review,
-    load_field_visits,
     load_gateway_master,
     load_meter_reads,
     load_telemetry,
 )
 from src.features import extract_features_for_week
-from src.ranker import rank_gateways_for_week
+from src.ranker import BaseRanker, get_ranker
 
 
-def run_pipeline(data_dir: pathlib.Path, output_path: pathlib.Path) -> pd.DataFrame:
-    """Execute the complete Part 1 ranking pipeline across all 8 scored weeks."""
-    print(f"Loading datasets from {data_dir}...")
+def run_pipeline(
+    data_dir: pathlib.Path,
+    output_path: pathlib.Path | None = None,
+    ranker: BaseRanker | str = "composite",
+) -> pd.DataFrame:
+    """Execute the complete ranking pipeline across all 8 scored weeks."""
+    if isinstance(ranker, str):
+        ranker_instance = get_ranker(ranker)
+    else:
+        ranker_instance = ranker
+
+    print(f"Loading datasets from {data_dir} using ranker '{ranker_instance.name}'...")
     telemetry = load_telemetry(data_dir)
     gateway_master = load_gateway_master(data_dir)
     meter_reads = load_meter_reads(data_dir)
@@ -31,7 +39,6 @@ def run_pipeline(data_dir: pathlib.Path, output_path: pathlib.Path) -> pd.DataFr
     recent_visits: dict[str, int] = {}
 
     for week_idx, monday in enumerate(SCORED_WEEKS):
-        print(f"Generating ranking for week {week_idx + 1}/8: {monday.isoformat()}...")
         features = extract_features_for_week(
             monday=monday,
             telemetry=telemetry,
@@ -40,7 +47,7 @@ def run_pipeline(data_dir: pathlib.Path, output_path: pathlib.Path) -> pd.DataFr
             engineer_review=engineer_review,
         )
 
-        ranked_df, selected_ids = rank_gateways_for_week(
+        ranked_df, selected_ids = ranker_instance.rank_week(
             monday=monday,
             features=features,
             recent_visits=recent_visits,
@@ -55,9 +62,9 @@ def run_pipeline(data_dir: pathlib.Path, output_path: pathlib.Path) -> pd.DataFr
 
     final_predictions = pd.concat(weekly_results, ignore_index=True)
 
-    # Ensure output parent directory exists
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    final_predictions.to_csv(output_path, index=False)
-    print(f"Successfully generated {output_path} with {len(final_predictions)} rows.")
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        final_predictions.to_csv(output_path, index=False)
+        print(f"Successfully generated {output_path} with {len(final_predictions)} rows.")
 
     return final_predictions

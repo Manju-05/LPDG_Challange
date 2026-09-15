@@ -1,7 +1,10 @@
-.PHONY: run test validate baseline clean
+.PHONY: run test validate baseline serve clean
 
 run:
 	python run.py --data data --out predictions.csv
+
+serve:
+	python run.py --serve --port 8000
 
 validate:
 	python validate_submission.py predictions.csv
