@@ -39,23 +39,28 @@ def test_reason_generator_formatting() -> None:
 
 
 def test_ranker_episode_cooldown() -> None:
-    """Verify that gateways visited in immediately prior week are discounted."""
+    """Verify progressive multi-week episode cooldown schedule."""
     features = pd.DataFrame({
-        "gateway_id": ["GW_A", "GW_B"],
-        "flagged_hours": [10, 10],
-        "offline_hours": [0.0, 0.0],
-        "meter_fail_rate": [0.0, 0.0],
-        "silent_hours": [0, 0],
-        "expert_schlecht": [0, 0],
+        "gateway_id": ["GW_A", "GW_B", "GW_C", "GW_D"],
+        "flagged_hours": [10, 10, 10, 10],
+        "offline_hours": [0.0, 0.0, 0.0, 0.0],
+        "meter_fail_rate": [0.0, 0.0, 0.0, 0.0],
+        "silent_hours": [0, 0, 0, 0],
+        "expert_schlecht": [0, 0, 0, 0],
     })
 
-    recent_visits = {"GW_A": 0}  # Visited in week 0
-    scored = compute_composite_score(features, recent_visits=recent_visits, current_week_idx=1)
+    # GW_A visited week 3 (1 week ago in week 4), GW_B visited week 2 (2 weeks ago), GW_C visited week 1 (3 weeks ago)
+    recent_visits = {"GW_A": 3, "GW_B": 2, "GW_C": 1}
+    scored = compute_composite_score(features, recent_visits=recent_visits, current_week_idx=4)
 
     score_a = scored.loc[scored["gateway_id"] == "GW_A", "score"].values[0]
     score_b = scored.loc[scored["gateway_id"] == "GW_B", "score"].values[0]
+    score_c = scored.loc[scored["gateway_id"] == "GW_C", "score"].values[0]
+    score_d = scored.loc[scored["gateway_id"] == "GW_D", "score"].values[0]
 
-    # GW_A should be penalized (0.2x) compared to GW_B (1.0x)
-    assert score_a < score_b
-    assert score_a == 2.0
-    assert score_b == 10.0
+    # Progressive discount: 1 week post (0.10x) < 2 weeks post (0.25x) < 3 weeks post (0.50x) < unvisited (1.0x)
+    assert score_a == 1.0   # 10 * 0.10
+    assert score_b == 2.5   # 10 * 0.25
+    assert score_c == 5.0   # 10 * 0.50
+    assert score_d == 10.0  # 10 * 1.00
+    assert score_a < score_b < score_c < score_d
