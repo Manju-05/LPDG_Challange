@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import pandas as pd
 
 from src import __version__
 from src.config import SCORED_WEEKS
@@ -66,19 +67,36 @@ DEFAULT_DATA_DIR = pathlib.Path("data")
 DEFAULT_OUT_CSV = pathlib.Path("predictions.csv")
 
 
-def _get_target_monday(week_str: str | None) -> dt.date:
+def _discover_latest_monday_on_disk(data_dir: pathlib.Path) -> dt.date:
+    """Dynamically discover the most recent Monday on disk with available telemetry."""
+    try:
+        telemetry = load_telemetry(data_dir)
+        if not telemetry.empty and "ts" in telemetry.columns:
+            max_ts = telemetry["ts"].max()
+            if pd.notna(max_ts):
+                max_date = max_ts.date()
+                candidate_monday = max_date - dt.timedelta(days=max_date.weekday())
+                # If fresh unseen partitions exist (e.g. April 2026 in live session), return newest Monday
+                if candidate_monday > SCORED_WEEKS[-1]:
+                    return candidate_monday
+    except Exception:
+        pass
+    return SCORED_WEEKS[-1]
+
+
+def _get_target_monday(week_str: str | None, data_dir: pathlib.Path = DEFAULT_DATA_DIR) -> dt.date:
     """Parse and validate week date string against Monday temporal boundaries.
     
     Supports:
       - None or 'first': Defaults to the first evaluation week (2026-02-02)
-      - 'latest': Defaults to the latest evaluation week (2026-03-23)
+      - 'latest': Dynamically discovers the newest available Monday from on-disk telemetry
       - ISO Monday dates: Any valid Monday (e.g. 2026-02-09 or unseen live-session dates like 2026-04-06)
     """
     if not week_str or week_str.strip().lower() in ("default", "first"):
         return SCORED_WEEKS[0]
 
     if week_str.strip().lower() == "latest":
-        return SCORED_WEEKS[-1]
+        return _discover_latest_monday_on_disk(data_dir)
 
     try:
         parsed_date = dt.date.fromisoformat(week_str.strip())
@@ -102,6 +120,20 @@ def _get_target_monday(week_str: str | None) -> dt.date:
     return parsed_date
 
 
+def _validate_telemetry_history_bounds(monday: dt.date, telemetry: pd.DataFrame) -> None:
+    """Ensure requested Monday does not precede the start of available telemetry observations."""
+    if not telemetry.empty and "ts" in telemetry.columns:
+        min_date = telemetry["ts"].min().date()
+        if monday < min_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Requested evaluation date '{monday.isoformat()}' precedes available telemetry history. "
+                    f"Telemetry observations on disk begin on '{min_date.isoformat()}'."
+                ),
+            )
+
+
 @app.get("/health", response_model=HealthResponse, tags=["System Health"])
 def get_health() -> HealthResponse:
     """Return system health status, active data path, and available algorithms."""
@@ -123,7 +155,7 @@ def get_fleet_summary(
     ),
 ) -> FleetSummaryResponse:
     """Retrieve high-level operational health statistics across the entire gateway fleet."""
-    target_monday = _get_target_monday(week)
+    target_monday = _get_target_monday(week, DEFAULT_DATA_DIR)
 
     if not DEFAULT_DATA_DIR.exists():
         raise HTTPException(
@@ -132,6 +164,8 @@ def get_fleet_summary(
         )
 
     telemetry = load_telemetry(DEFAULT_DATA_DIR)
+    _validate_telemetry_history_bounds(target_monday, telemetry)
+
     gateway_master = load_gateway_master(DEFAULT_DATA_DIR)
     meter_reads = load_meter_reads(DEFAULT_DATA_DIR)
     engineer_review = load_engineer_review(DEFAULT_DATA_DIR)
@@ -171,7 +205,7 @@ def get_weekly_rankings(
     ),
 ) -> WeeklyRankingsResponse:
     """Retrieve the top 15 gateways prioritized for field dispatch in the requested week."""
-    target_monday = _get_target_monday(week)
+    target_monday = _get_target_monday(week, DEFAULT_DATA_DIR)
 
     try:
         ranker_instance = get_ranker(ranker)
@@ -186,6 +220,8 @@ def get_weekly_rankings(
 
     try:
         telemetry = load_telemetry(DEFAULT_DATA_DIR)
+        _validate_telemetry_history_bounds(target_monday, telemetry)
+
         gateway_master = load_gateway_master(DEFAULT_DATA_DIR)
         meter_reads = load_meter_reads(DEFAULT_DATA_DIR)
         engineer_review = load_engineer_review(DEFAULT_DATA_DIR)
@@ -222,6 +258,8 @@ def get_weekly_rankings(
             ranker_type=ranker_instance.name,
             rankings=items,
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -249,7 +287,7 @@ def get_gateway_details(
             detail=f"Invalid gateway identifier format: '{gateway_id}'",
         )
 
-    target_monday = _get_target_monday(week)
+    target_monday = _get_target_monday(week, DEFAULT_DATA_DIR)
 
     try:
         ranker_instance = get_ranker(ranker)
@@ -263,6 +301,8 @@ def get_gateway_details(
         )
 
     telemetry = load_telemetry(DEFAULT_DATA_DIR)
+    _validate_telemetry_history_bounds(target_monday, telemetry)
+
     gateway_master = load_gateway_master(DEFAULT_DATA_DIR)
     meter_reads = load_meter_reads(DEFAULT_DATA_DIR)
     engineer_review = load_engineer_review(DEFAULT_DATA_DIR)

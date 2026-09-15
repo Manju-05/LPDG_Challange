@@ -58,6 +58,48 @@ def test_api_get_rankings_with_latest_keyword() -> None:
     assert data["total_ranked"] == 15
 
 
+def test_api_get_rankings_latest_dynamic_with_unseen_partition(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live Session Test: ?week=latest dynamically discovers new April 2026 partitions on disk."""
+    mock_data = tmp_path / "mock_live_data"
+    mock_data.mkdir()
+    tel_dir = mock_data / "telemetry"
+    tel_dir.mkdir()
+
+    gateways = [f"0A{i:010X}" for i in range(1, 21)]
+    master_df = pd.DataFrame({
+        "gateway_id": gateways,
+        "n_meters_installed": [100] * 20,
+        "installed_on": ["2024-01-01"] * 20,
+        "decommissioned_on": [None] * 20,
+    })
+    master_df.to_csv(mock_data / "gateway_master.csv", index=False)
+
+    # Telemetry spanning into April 2026 (up to Monday 2026-04-13)
+    april_timestamps = [
+        (pd.Timestamp("2026-04-13", tz="UTC") - dt.timedelta(hours=h)).isoformat()
+        for h in range(1, 169)
+    ]
+    records = []
+    for gw in gateways:
+        for ts in april_timestamps:
+            records.append({
+                "gateway_id": gw,
+                "ts_utc": ts,
+                "offline_duration_sec": 0,
+                "disconnection_cnt": 0,
+                "reboot_cnt": 0,
+            })
+    pd.DataFrame(records).to_parquet(tel_dir / "month=2026-04.parquet")
+
+    monkeypatch.setattr(src.api, "DEFAULT_DATA_DIR", mock_data)
+
+    response = client.get("/rankings?week=latest")
+    assert response.status_code == 200
+    data = response.json()
+    # Confirms latest resolved dynamically to 2026-04-13 on disk!
+    assert data["week_start"] == "2026-04-13"
+
+
 def test_api_get_rankings_with_specific_week() -> None:
     """Verify that /rankings accepts any valid ?week= parameter from the 8 scored weeks."""
     for week_str in ["2026-02-02", "2026-02-16", "2026-03-23"]:
@@ -105,6 +147,13 @@ def test_api_get_rankings_non_monday_date() -> None:
     assert response.status_code == 400
     assert "is a Wednesday" in response.json()["detail"]
     assert "strictly operates on Mondays" in response.json()["detail"]
+
+
+def test_api_get_rankings_preceding_telemetry_history() -> None:
+    """Verify that dates far in the past before telemetry observations return HTTP 400."""
+    response = client.get("/rankings?week=2020-01-06")
+    assert response.status_code == 400
+    assert "precedes available telemetry history" in response.json()["detail"]
 
 
 def test_api_gateway_detail_success() -> None:
