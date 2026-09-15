@@ -120,6 +120,20 @@ def get_ranker(ranker_type: str = "composite") -> BaseRanker:
     return cls()
 
 
+def _get_cooldown_factor(gid: str, recent_visits: dict[str, int], current_week_idx: int) -> float:
+    """Multi-week episode cooldown to prevent duplicate visit spend during ongoing fault episodes."""
+    if gid not in recent_visits:
+        return 1.0
+    weeks_since_visit = current_week_idx - recent_visits[gid]
+    if weeks_since_visit == 1:
+        return 0.10  # 90% discount (week 1 post-visit: halt duplicate)
+    elif weeks_since_visit == 2:
+        return 0.25  # 75% discount (week 2 post-visit)
+    elif weeks_since_visit == 3:
+        return 0.50  # 50% discount (week 3 post-visit)
+    return 1.00     # 4+ weeks: allow full score if new degradation episode begins
+
+
 def compute_composite_score(
     features: pd.DataFrame,
     recent_visits: dict[str, int],
@@ -137,7 +151,7 @@ def compute_composite_score(
     raw_score = base_score + offline_component + meter_loss_component + silence_component + expert_component
 
     cooldown_multiplier = df["gateway_id"].map(
-        lambda gid: 0.2 if (gid in recent_visits and (current_week_idx - recent_visits[gid]) <= 1) else 1.0
+        lambda gid: _get_cooldown_factor(gid, recent_visits, current_week_idx)
     )
 
     df["score"] = raw_score * cooldown_multiplier
