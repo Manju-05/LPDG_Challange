@@ -76,8 +76,8 @@ def _discover_latest_monday_on_disk(data_dir: pathlib.Path) -> dt.date:
             if pd.notna(max_ts):
                 max_date = max_ts.date()
                 candidate_monday = max_date - dt.timedelta(days=max_date.weekday())
-                # If fresh unseen partitions exist (e.g. April 2026 in live session), return newest Monday
-                if candidate_monday > SCORED_WEEKS[-1]:
+                # If fresh unseen partitions exist beyond standard challenge period (April 2026+), return newest Monday
+                if candidate_monday > dt.date(2026, 3, 31):
                     return candidate_monday
     except Exception:
         pass

@@ -74,10 +74,10 @@ def test_api_get_rankings_latest_dynamic_with_unseen_partition(tmp_path: pathlib
     })
     master_df.to_csv(mock_data / "gateway_master.csv", index=False)
 
-    # Telemetry spanning into April 2026 (up to Monday 2026-04-13)
+    # Telemetry spanning into Monday April 13, 2026
     april_timestamps = [
-        (pd.Timestamp("2026-04-13", tz="UTC") - dt.timedelta(hours=h)).isoformat()
-        for h in range(1, 169)
+        (pd.Timestamp("2026-04-13 12:00:00", tz="UTC") - dt.timedelta(hours=h)).isoformat()
+        for h in range(168)
     ]
     records = []
     for gw in gateways:
@@ -216,13 +216,11 @@ def test_api_trigger_run_pipeline(tmp_path: pathlib.Path) -> None:
 
 def test_api_run_freshness_picks_up_new_data_on_disk(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """FAQ 6.5 Live Session Test: Dropping fresh data on disk is picked up by /run without restarting service."""
-    # 1. Create temporary isolated data folder
     mock_data = tmp_path / "mock_data"
     mock_data.mkdir()
     tel_dir = mock_data / "telemetry"
     tel_dir.mkdir()
 
-    # Create 20 mock gateways in master
     gateways = [f"0A{i:010X}" for i in range(1, 21)]
     master_df = pd.DataFrame({
         "gateway_id": gateways,
@@ -232,7 +230,6 @@ def test_api_run_freshness_picks_up_new_data_on_disk(tmp_path: pathlib.Path, mon
     })
     master_df.to_csv(mock_data / "gateway_master.csv", index=False)
 
-    # Base telemetry: All 20 gateways healthy (0 offline, 0 disconnects)
     timestamps = [
         (pd.Timestamp("2026-02-02", tz="UTC") - dt.timedelta(hours=h)).isoformat()
         for h in range(1, 169)
@@ -249,18 +246,15 @@ def test_api_run_freshness_picks_up_new_data_on_disk(tmp_path: pathlib.Path, mon
             })
     pd.DataFrame(base_records).to_parquet(tel_dir / "batch_1.parquet")
 
-    # Point API data directory to our dynamic mock_data
     monkeypatch.setattr(src.api, "DEFAULT_DATA_DIR", mock_data)
 
-    # First run on initial data
     out_1 = tmp_path / "preds_1.csv"
     res1 = client.post(f"/run?out={out_1}")
     assert res1.status_code == 200
     df1 = pd.read_csv(out_1)
     top_gw_1 = df1.iloc[0]["gateway_id"]
 
-    # 2. Simulate Evaluator dropping a new batch on disk while service is running:
-    # Gateway 0A0000000014 (GW #20) suddenly suffers 150 hours of continuous disconnects
+    # Drop new month data while service is running
     spike_records = [
         {
             "gateway_id": "0A0000000014",
@@ -273,13 +267,11 @@ def test_api_run_freshness_picks_up_new_data_on_disk(tmp_path: pathlib.Path, mon
     ]
     pd.DataFrame(spike_records).to_parquet(tel_dir / "fresh_drop_batch_2.parquet")
 
-    # Second run without restarting the service
     out_2 = tmp_path / "preds_2.csv"
     res2 = client.post(f"/run?out={out_2}")
     assert res2.status_code == 200
     df2 = pd.read_csv(out_2)
     top_gw_2 = df2.iloc[0]["gateway_id"]
 
-    # Verify that the new on-disk file was dynamically ingested and changed the top ranking!
     assert top_gw_2 == "0A0000000014"
     assert top_gw_2 != top_gw_1
