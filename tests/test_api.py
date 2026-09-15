@@ -49,6 +49,15 @@ def test_api_get_rankings_default() -> None:
     assert ranks == list(range(1, 16))
 
 
+def test_api_get_rankings_with_latest_keyword() -> None:
+    """Verify that /rankings accepts ?week=latest and returns the latest evaluation week."""
+    response = client.get("/rankings?week=latest")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["week_start"] == "2026-03-23"
+    assert data["total_ranked"] == 15
+
+
 def test_api_get_rankings_with_specific_week() -> None:
     """Verify that /rankings accepts any valid ?week= parameter from the 8 scored weeks."""
     for week_str in ["2026-02-02", "2026-02-16", "2026-03-23"]:
@@ -90,11 +99,12 @@ def test_api_get_rankings_invalid_date_format() -> None:
     assert "Invalid date format" in response.json()["detail"]
 
 
-def test_api_get_rankings_out_of_window() -> None:
-    """Verify that dates outside the scored evaluation window trigger HTTP 400."""
-    response = client.get("/rankings?week=2025-05-01")
+def test_api_get_rankings_non_monday_date() -> None:
+    """Verify that non-Monday dates trigger HTTP 400 explaining Monday dispatch convention."""
+    response = client.get("/rankings?week=2026-02-04")  # Wednesday
     assert response.status_code == 400
-    assert "not in the scored evaluation window" in response.json()["detail"]
+    assert "is a Wednesday" in response.json()["detail"]
+    assert "strictly operates on Mondays" in response.json()["detail"]
 
 
 def test_api_gateway_detail_success() -> None:
@@ -198,7 +208,6 @@ def test_api_run_freshness_picks_up_new_data_on_disk(tmp_path: pathlib.Path, mon
     res1 = client.post(f"/run?out={out_1}")
     assert res1.status_code == 200
     df1 = pd.read_csv(out_1)
-    # With 0 anomalies across all, first gateway alphabetically is top
     top_gw_1 = df1.iloc[0]["gateway_id"]
 
     # 2. Simulate Evaluator dropping a new batch on disk while service is running:

@@ -67,23 +67,36 @@ DEFAULT_OUT_CSV = pathlib.Path("predictions.csv")
 
 
 def _get_target_monday(week_str: str | None) -> dt.date:
-    """Parse and validate week date string against supported scored window."""
-    if not week_str:
+    """Parse and validate week date string against Monday temporal boundaries.
+    
+    Supports:
+      - None or 'first': Defaults to the first evaluation week (2026-02-02)
+      - 'latest': Defaults to the latest evaluation week (2026-03-23)
+      - ISO Monday dates: Any valid Monday (e.g. 2026-02-09 or unseen live-session dates like 2026-04-06)
+    """
+    if not week_str or week_str.strip().lower() in ("default", "first"):
         return SCORED_WEEKS[0]
+
+    if week_str.strip().lower() == "latest":
+        return SCORED_WEEKS[-1]
 
     try:
         parsed_date = dt.date.fromisoformat(week_str.strip())
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid date format '{week_str}'. Use ISO format YYYY-MM-DD.",
+            detail=f"Invalid date format '{week_str}'. Use ISO format YYYY-MM-DD (e.g. 2026-02-02).",
         )
 
-    if parsed_date not in SCORED_WEEKS:
-        valid_dates = [w.isoformat() for w in SCORED_WEEKS]
+    # In utility operations, dispatch decisions happen strictly on Monday boundaries
+    if parsed_date.weekday() != 0:
+        nearest_monday = parsed_date - dt.timedelta(days=parsed_date.weekday())
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Week '{week_str}' is not in the scored evaluation window: {valid_dates}",
+            detail=(
+                f"Date '{week_str}' is a {parsed_date.strftime('%A')}. "
+                f"Field dispatch prioritization strictly operates on Mondays (e.g. '{nearest_monday.isoformat()}')."
+            ),
         )
 
     return parsed_date
@@ -106,7 +119,7 @@ def get_health() -> HealthResponse:
 def get_fleet_summary(
     week: str | None = Query(
         None,
-        description="Target Monday date (YYYY-MM-DD, e.g. 2026-02-02). Defaults to 2026-02-02.",
+        description="Target Monday date (YYYY-MM-DD, 'latest', or leave empty for default 2026-02-02).",
     ),
 ) -> FleetSummaryResponse:
     """Retrieve high-level operational health statistics across the entire gateway fleet."""
@@ -150,7 +163,7 @@ def get_fleet_summary(
 def get_weekly_rankings(
     week: str | None = Query(
         None,
-        description="Target Monday date (YYYY-MM-DD, e.g. 2026-02-02). Defaults to 2026-02-02.",
+        description="Target Monday date (YYYY-MM-DD, 'latest', or leave empty for default 2026-02-02).",
     ),
     ranker: str = Query(
         "composite",
@@ -177,7 +190,7 @@ def get_weekly_rankings(
         meter_reads = load_meter_reads(DEFAULT_DATA_DIR)
         engineer_review = load_engineer_review(DEFAULT_DATA_DIR)
 
-        week_idx = SCORED_WEEKS.index(target_monday)
+        week_idx = SCORED_WEEKS.index(target_monday) if target_monday in SCORED_WEEKS else max(0, (target_monday - SCORED_WEEKS[0]).days // 7)
         features = extract_features_for_week(
             monday=target_monday,
             telemetry=telemetry,
@@ -221,7 +234,7 @@ def get_gateway_details(
     gateway_id: str,
     week: str | None = Query(
         None,
-        description="Target Monday date (YYYY-MM-DD, e.g. 2026-02-02). Defaults to 2026-02-02.",
+        description="Target Monday date (YYYY-MM-DD, 'latest', or leave empty for default 2026-02-02).",
     ),
     ranker: str = Query(
         "composite",
@@ -254,7 +267,7 @@ def get_gateway_details(
     meter_reads = load_meter_reads(DEFAULT_DATA_DIR)
     engineer_review = load_engineer_review(DEFAULT_DATA_DIR)
 
-    week_idx = SCORED_WEEKS.index(target_monday)
+    week_idx = SCORED_WEEKS.index(target_monday) if target_monday in SCORED_WEEKS else max(0, (target_monday - SCORED_WEEKS[0]).days // 7)
     features = extract_features_for_week(
         monday=target_monday,
         telemetry=telemetry,
