@@ -245,10 +245,4 @@ The generated submission contains exactly 120 rows (15 gateways $\times$ 8 weeks
 
 - **Walkthrough Video Link**: **[Watch Challenge Video Walkthrough (Google Drive)](https://drive.google.com/file/d/1HS7XG4fKHSVBjISlI7L1yryKrymekO1h/view?usp=drive_link)**
 
-### Walkthrough Script / Slide Outline:
-1. **Problem & Economic Context (1 min)**: Fleet scale (~320 gateways), 15 visits/week limit, €380 visit cost vs €600 recurring unattended fault penalty.
-2. **Architecture & Cutoff Enforcement (2 mins)**: Walk through `src/` modules, showing strict Monday 00:00 UTC boundaries and date-checked engineer review integration.
-3. **One-Command Execution (1 min)**: Execute `python run.py --data data --out predictions.csv` in terminal.
-4. **Validation & Test Execution (1.5 mins)**: Run `python validate_submission.py predictions.csv` and `pytest -v`.
-5. **REST API & Part 2 Focus (1.5 mins)**: Run `python run.py --serve`, showcase Swagger UI at `/docs`, demo `/fleet/summary`, `/gateways/{id}/history`, `/rankings?week=latest`, and `POST /run`.
-6. **Decisions & Limitations (1 min)**: Review multi-week episode cooldown strategy, meter staleness decay, and limitations/roadmap in `DECISIONS.md`.
+
