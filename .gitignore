@@ -4,6 +4,8 @@ data/
 *.zip
 *.parquet
 *.pdf
+!24095A3305.pdf
+!24095a3305.pdf
 prompt*.txt
 PROMPT*.txt
 *.prompt

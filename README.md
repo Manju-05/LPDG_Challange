@@ -26,6 +26,7 @@ When a gateway degrades or fails, the meters behind it stop transmitting reading
 
 ```text
 ├── .gitignore                      # Protects raw data, prompt notes, and caches
+├── 24095A3305.pdf                  # Candidate Resume (<Registration_Id>.pdf)
 ├── AI-USAGE.md                     # Statement of AI tool usage, review process, & fixes
 ├── DECISIONS.md                    # 6 architectural decisions, limitations, & roadmap
 ├── README.md                       # Main documentation & run instructions
@@ -232,6 +233,7 @@ The generated submission contains exactly 120 rows (15 gateways $\times$ 8 weeks
 ## 7. Deliverables & Documentation Index
 
 - **[`predictions.csv`](predictions.csv)**: Validated submission file (120 rows, 8 scored weeks).
+- **[`24095A3305.pdf`](24095A3305.pdf)**: Candidate Resume (`<Registration_Id>.pdf` format).
 - **[`DECISIONS.md`](DECISIONS.md)**: 6 core architectural decisions, trade-offs, risks, Part 2 Track Selection (Track B — Software Development), and limitations.
 - **[`AI-USAGE.md`](AI-USAGE.md)**: Transparent declaration of AI tooling, manual review procedures, and concrete AI errors caught and resolved.
 - **[`run.py`](run.py)** & **[`src/`](src/)**: Prioritization pipeline and FastAPI REST service.
@@ -239,10 +241,9 @@ The generated submission contains exactly 120 rows (15 gateways $\times$ 8 weeks
 
 ---
 
-## 8. Video Walkthrough & Presentation Outline
+## 8. Video Walkthrough & Presentation
 
-> **Note**: A 6–8 minute walkthrough video will be recorded and linked here prior to final submission.
-> **Video Link**: `[Insert Walkthrough Link: YouTube / Loom / Drive]`
+- **Walkthrough Video Link**: **[Watch Challenge Video Walkthrough (Google Drive)](https://drive.google.com/file/d/1HS7XG4fKHSVBjISlI7L1yryKrymekO1h/view?usp=drive_link)**
 
 ### Walkthrough Script / Slide Outline:
 1. **Problem & Economic Context (1 min)**: Fleet scale (~320 gateways), 15 visits/week limit, €380 visit cost vs €600 recurring unattended fault penalty.
