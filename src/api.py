@@ -147,6 +147,17 @@ def get_health() -> HealthResponse:
     )
 
 
+@app.get("/fleet/status", tags=["System Health"])
+def get_fleet_quick_status():
+    """Quick summary of active system configuration."""
+    return {
+        "status": "operational",
+        "scored_weeks_count": len(SCORED_WEEKS),
+        "default_ranker": "composite",
+        "quota_per_week": 15
+    }
+
+
 @app.get("/fleet/summary", response_model=FleetSummaryResponse, tags=["Fleet Rankings"])
 def get_fleet_summary(
     week: str | None = Query(

@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
 
             print(f"Starting LPDG REST API server on http://{args.host}:{args.port}...")
             print(f"Interactive Swagger documentation available at: http://{args.host}:{args.port}/docs")
-            uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+            uvicorn.run("src.api:app", host=args.host, port=args.port, reload=True, log_level="info")
             return 0
         except ImportError:
             print("Error: 'uvicorn' is required to run the API server. Install with: pip install uvicorn", file=sys.stderr)
